@@ -1,4 +1,4 @@
-# INTRODUCTION
+# Introduction
 This is a script to use the ElevenLabs API to easily
 generate TTS message MP3s from a Text-File or via 
 copy-pasted text. It includes the following features:
@@ -16,7 +16,7 @@ your audio files to that Folder.
 On initial launch, the script will create a config file 
 in which you can adjust some settings.
 
-# INSTALLATION
+# Installation
 
 To use this, you need:
 

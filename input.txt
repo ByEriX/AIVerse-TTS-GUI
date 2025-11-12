@@ -1,0 +1,2 @@
+﻿You can read the contents of this file or any other .txt-file in the GUI instead of
+manually copying and pasting text! :D

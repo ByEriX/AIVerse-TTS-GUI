@@ -18,7 +18,14 @@ in which you can adjust some settings.
 
 # Installation
 
-To use this, you need:
+First, clone the repository:
+
+`git clone https://github.com/ByEriX/AIVerse-TTS-GUI.git`
+
+`cd AIVerse-TTS-GUI`
+
+
+To use this GUI, you need:
 
 - Python
 - requests package

@@ -10,7 +10,7 @@ import shutil
 from datetime import datetime, timedelta, timezone
 
 # === Version ===
-VERSION = "5.2"
+VERSION = "6"
 
 # === Persistence Paths ===
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,7 +23,7 @@ DEFAULT_VOICE_ID = "z9fAnlkpzviPz146aGWa"
 # Default API keys file initializer
 DEFAULT_API_KEYS = [
     'KEY1-PLEASE-CHANGE',
-    'ADDITIONAL KEYS AFTER COMMA'
+    'ADDITIONAL KEYS IN NEW LINE'
 ]
 
 # Config & voices cache files
@@ -38,7 +38,8 @@ DEFAULT_CONFIG = {
         "stability": 0.4,
         "use_speaker_boost": True
     },
-    "update_interval_days": 14
+    "update_interval_days": 14,
+    "theme": "light"  # "light" or "dark"
 }
 
 CHAR_LIMIT = DEFAULT_CONFIG["char_limit"]
@@ -57,7 +58,7 @@ invalid_keys = set()  # keys exceeding quota
 current_key_index = 0
 
 
-# === Load/Save Config ===
+# Load/Save Config
 def load_config():
     """Load config.json or create it with defaults. Updates global vars."""
     global CHAR_LIMIT, VOICE_SETTINGS, UPDATE_INTERVAL_DAYS
@@ -120,7 +121,8 @@ def save_config(cfg=None):
         cfg = {
             "char_limit": CHAR_LIMIT,
             "voice_settings": VOICE_SETTINGS,
-            "update_interval_days": UPDATE_INTERVAL_DAYS
+            "update_interval_days": UPDATE_INTERVAL_DAYS,
+            "theme": getattr(save_config, '_current_theme', 'light')
         }
     try:
         with state_lock:
@@ -493,6 +495,47 @@ def process_text(text, output_folder, base_filename, voice_id,
 
 
 # === GUI ===
+# Light theme colors
+COLORS_LIGHT = {
+    'bg_primary': '#ffffff',
+    'bg_secondary': '#f7f6f3',
+    'bg_tertiary': '#f1f1ef',
+    'text_primary': '#1a1a1a',  # Much darker for better contrast
+    'text_secondary': '#666666',  # More visible secondary text
+    'text_tertiary': '#999999',
+    'border': '#d0d0d0',  # More visible borders
+    'border_light': '#e5e5e5',
+    'accent': '#2383e2',
+    'accent_hover': '#1a6fc9',
+    'hover_bg': '#f0f0f0',  # More visible hover
+    'button_bg': '#f5f5f5',  # Slightly darker for visibility
+    'button_border': '#d0d0d0',  # More visible button borders
+    'input_bg': '#ffffff',
+    'button_hover': '#e8e8e8',  # Clear hover state
+}
+
+# Dark theme colors
+COLORS_DARK = {
+    'bg_primary': '#191919',
+    'bg_secondary': '#1f1f1f',
+    'bg_tertiary': '#2e2e2e',
+    'text_primary': '#ececec',
+    'text_secondary': '#9b9a97',
+    'text_tertiary': '#707070',
+    'border': '#2e2e2e',
+    'border_light': '#373737',
+    'accent': '#4a9eff',
+    'accent_hover': '#6bb0ff',
+    'hover_bg': '#2e2e2e',
+    'button_bg': '#1f1f1f',
+    'button_border': '#373737',
+    'input_bg': '#1f1f1f',
+    'button_hover': '#2e2e2e',
+}
+
+# Default to light theme
+COLORS = COLORS_LIGHT.copy()
+
 class App:
     def __init__(self, root):
         self.root = root
@@ -500,76 +543,423 @@ class App:
         self.queue = queue.Queue()
         self.cancel_requested = False
 
-        # Input file
-        tk.Label(root, text="Input .txt file:").grid(row=0, column=0, sticky="w")
-        self.input_file = tk.Entry(root, width=40)
-        self.input_file.grid(row=0, column=1, sticky="we")
-        tk.Button(root, text="Browse...", command=self.browse_input).grid(row=0, column=2, sticky="e")
+        # Load theme preference
+        cfg = load_config()
+        self.theme = cfg.get("theme", "light")
+        self._apply_theme(self.theme)
 
-        # Output folder
-        tk.Label(root, text="Output folder:").grid(row=1, column=0, sticky="w")
-        self.output_folder = tk.Entry(root, width=40)
-        self.output_folder.grid(row=1, column=1, sticky="we")
-        tk.Button(root, text="Browse...", command=self.browse_output).grid(row=1, column=2, sticky="e")
+        # Configure root window
+        root.configure(bg=COLORS['bg_primary'])
+        # Use better, larger font for readability
+        if os.name == 'nt':
+            default_font = ('Segoe UI', 11)
+            label_font = ('Segoe UI', 11, 'normal')
+        else:
+            default_font = ('Helvetica', 11)
+            label_font = ('Helvetica', 11, 'normal')
+        root.option_add('*Font', default_font)
+        self.label_font = label_font
+        self.default_font = default_font
+        
+        # Store widget references for theme updates
+        self.theme_widgets = []
+        
+        # Configure ttk styles
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # Style the progress bar
+        style.configure('TProgressbar',
+                       background=COLORS['accent'],
+                       troughcolor=COLORS['bg_tertiary'],
+                       borderwidth=0,
+                       lightcolor=COLORS['accent'],
+                       darkcolor=COLORS['accent'])
+        
+        # Style the combobox
+        style.configure('TCombobox',
+                       fieldbackground=COLORS['input_bg'],
+                       background=COLORS['input_bg'],
+                       foreground=COLORS['text_primary'],
+                       borderwidth=2,
+                       relief='flat',
+                       padding=8)
+        style.map('TCombobox',
+                 fieldbackground=[('readonly', COLORS['input_bg'])],
+                 background=[('readonly', COLORS['input_bg'])],
+                 foreground=[('readonly', COLORS['text_primary'])],
+                 bordercolor=[('focus', COLORS['accent']), ('!focus', COLORS['border'])],
+                 lightcolor=[('focus', COLORS['accent'])],
+                 darkcolor=[('focus', COLORS['accent'])])
+        
+        # Main container with padding
+        main_frame = tk.Frame(root, bg=COLORS['bg_primary'], padx=24, pady=16)
+        main_frame.grid(row=0, column=0, sticky="nsew")
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(0, weight=1)
 
-        # Base filename
-        tk.Label(root, text="Base filename:").grid(row=2, column=0, sticky="w")
-        self.base_name = tk.Entry(root, width=40)
-        self.base_name.grid(row=2, column=1, sticky="we")
-        tk.Label(root, text="").grid(row=2, column=2, sticky="e")
+        # Input file section - fixed width labels for alignment
+        file_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        file_frame.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        tk.Label(file_frame, text="Input .txt file:", bg=COLORS['bg_primary'], 
+                fg=COLORS['text_primary'], font=self.label_font, width=14, anchor='w').grid(row=0, column=0, sticky="w", padx=(0, 12))
+        self.input_file = tk.Entry(file_frame, width=50, relief='flat', bd=0,
+                                  bg=COLORS['input_bg'], fg=COLORS['text_primary'],
+                                  insertbackground=COLORS['text_primary'],
+                                  font=self.default_font,
+                                  highlightthickness=2, highlightcolor=COLORS['accent'],
+                                  highlightbackground=COLORS['border'])
+        self.input_file.grid(row=0, column=1, sticky="we", padx=(0, 8))
+        file_frame.grid_columnconfigure(1, weight=1)
+        self._create_styled_button(file_frame, "Browse...", self.browse_input).grid(row=0, column=2, sticky="e")
 
-        # Manage keys button
-        tk.Button(root, text="Manage Keys", command=self.manage_keys).grid(row=3, column=2, sticky="e")
+        # Output folder section
+        output_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        output_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        tk.Label(output_frame, text="Output folder:", bg=COLORS['bg_primary'],
+                fg=COLORS['text_primary'], font=self.label_font, width=14, anchor='w').grid(row=0, column=0, sticky="w", padx=(0, 12))
+        self.output_folder = tk.Entry(output_frame, width=50, relief='flat', bd=0,
+                                      bg=COLORS['input_bg'], fg=COLORS['text_primary'],
+                                      insertbackground=COLORS['text_primary'],
+                                      font=self.default_font,
+                                      highlightthickness=2, highlightcolor=COLORS['accent'],
+                                      highlightbackground=COLORS['border'])
+        self.output_folder.grid(row=0, column=1, sticky="we", padx=(0, 8))
+        output_frame.grid_columnconfigure(1, weight=1)
+        self._create_styled_button(output_frame, "Browse...", self.browse_output).grid(row=0, column=2, sticky="e")
 
-        # Voice selection dropdown
-        # build initial voice_map with Glinda only
+        # Base filename section
+        name_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        name_frame.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        tk.Label(name_frame, text="Base filename:", bg=COLORS['bg_primary'],
+                fg=COLORS['text_primary'], font=self.label_font, width=14, anchor='w').grid(row=0, column=0, sticky="w", padx=(0, 12))
+        self.base_name = tk.Entry(name_frame, width=50, relief='flat', bd=0,
+                                  bg=COLORS['input_bg'], fg=COLORS['text_primary'],
+                                  insertbackground=COLORS['text_primary'],
+                                  font=self.default_font,
+                                  highlightthickness=2, highlightcolor=COLORS['accent'],
+                                  highlightbackground=COLORS['border'])
+        self.base_name.grid(row=0, column=1, sticky="we", padx=(0, 8))
+        name_frame.grid_columnconfigure(1, weight=1)
+
+        # Voice selection and Manage Keys section
+        voice_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        voice_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        self.theme_widgets.append(('frame', voice_frame))
+        voice_label = tk.Label(voice_frame, text="Voice:", bg=COLORS['bg_primary'],
+                fg=COLORS['text_primary'], font=self.label_font, width=14, anchor='w')
+        voice_label.grid(row=0, column=0, sticky="w", padx=(0, 12))
+        self.theme_widgets.append(('label', voice_label))
+        
+        # Voice selection dropdown (using ttk.Combobox for better styling)
         self.voice_map = {"Glinda": DEFAULT_VOICE_ID}
         self.voice_var = tk.StringVar(root)
         self.voice_var.set("Glinda")
-        self.voice_menu = tk.OptionMenu(root, self.voice_var, *self.voice_map.keys())
-        self.voice_menu.grid(row=3, column=1, sticky="we")
+        self.voice_menu = ttk.Combobox(voice_frame, textvariable=self.voice_var,
+                                       values=list(self.voice_map.keys()),
+                                       state='readonly', style='TCombobox',
+                                       font=self.default_font)
+        self.voice_menu.grid(row=0, column=1, sticky="w", padx=(0, 8))
+        voice_frame.grid_columnconfigure(1, weight=1)
+        
 
-        # spawn background thread to refresh voices from cache/API
+        theme_icon = "☾" if self.theme == "light" else "◉"  # Moon and Sun symbols
+        self.theme_btn = tk.Button(voice_frame, text=theme_icon,
+                                   command=self.toggle_theme,
+                                   bg=COLORS['button_bg'], fg=COLORS['text_primary'],
+                                   activebackground=COLORS['button_hover'],
+                                   activeforeground=COLORS['text_primary'],
+                                   relief='flat', bd=0,
+                                   highlightthickness=2,
+                                   highlightcolor=COLORS['accent'],
+                                   highlightbackground=COLORS['button_border'],
+                                   padx=10, pady=8,
+                                   font=(self.default_font[0], self.default_font[1], 'normal'),
+                                   cursor='hand2',
+                                   width=3,
+                                   anchor='center')
+        self.theme_btn.grid(row=0, column=2, sticky="e", padx=(0, 8))
+        self.theme_widgets.append(('button', self.theme_btn))
+        
+        # Manage keys button
+        manage_keys_btn = self._create_styled_button(voice_frame, "Manage Keys", self.manage_keys)
+        manage_keys_btn.grid(row=0, column=3, sticky="e")
+
+        # Spawn background thread to refresh voices from cache/API
         threading.Thread(target=self._async_load_voices, daemon=True).start()
 
-        # Text area
-        tk.Label(root, text="Input text:").grid(row=4, column=0, sticky="nw")
-        self.text_input = scrolledtext.ScrolledText(root, width=60, height=10)
-        self.text_input.grid(row=4, column=1, columnspan=2, sticky="we")
+        # Text area section
+        text_label_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        text_label_frame.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        tk.Label(text_label_frame, text="Input text:", bg=COLORS['bg_primary'],
+                fg=COLORS['text_primary'], font=self.label_font, width=14, anchor='w').grid(row=0, column=0, sticky="w")
+        
+        # Text input area with styled border
+        text_container = tk.Frame(main_frame, bg=COLORS['border'], padx=2, pady=2)
+        text_container.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        self.text_input = scrolledtext.ScrolledText(text_container, width=60, height=10,
+                                                    relief='flat', bd=0,
+                                                    bg=COLORS['input_bg'], fg=COLORS['text_primary'],
+                                                    insertbackground=COLORS['text_primary'],
+                                                    selectbackground=COLORS['accent'],
+                                                    selectforeground='white',
+                                                    font=self.default_font,
+                                                    wrap=tk.WORD)
+        self.text_input.pack(fill='both', expand=True)
         self.text_input.bind("<KeyRelease>", self.update_count)
+        self.text_input.bind("<FocusIn>", lambda e: text_container.config(bg=COLORS['accent']))
+        self.text_input.bind("<FocusOut>", lambda e: text_container.config(bg=COLORS['border']))
 
-        # Character count
-        self.count_label = tk.Label(root, text="Character count: 0")
-        self.count_label.grid(row=5, column=1, sticky="w")
-
-        # Frame for Start and Cancel buttons
-        self.button_frame = tk.Frame(root)
-        self.button_frame.grid(row=5, column=2, sticky="e", pady=(2, 0))
-
+        # Character count and buttons
+        control_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        control_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        self.count_label = tk.Label(control_frame, text="Character count: 0",
+                                    bg=COLORS['bg_primary'], fg=COLORS['text_secondary'],
+                                    font=(self.default_font[0], self.default_font[1] - 1))
+        self.count_label.grid(row=0, column=0, sticky="w")
+        control_frame.grid_columnconfigure(0, weight=1)
+        
+        # Button frame
+        self.button_frame = tk.Frame(control_frame, bg=COLORS['bg_primary'])
+        self.button_frame.grid(row=0, column=1, sticky="e")
+        
         # Cancel button
-        self.cancel_btn = tk.Button(self.button_frame, text="Cancel", command=self.cancel)
-        self.cancel_btn.pack(side="left", padx=(0, 5))
-        self.cancel_btn.config(state='disabled')
+        self.cancel_btn = self._create_styled_button(self.button_frame, "Cancel", self.cancel)
+        self.cancel_btn.pack(side="left", padx=(0, 8))
+        self.cancel_btn.config(state='disabled', bg=COLORS['bg_tertiary'], 
+                              fg=COLORS['text_tertiary'])
 
-        # Start button
-        self.start_btn = tk.Button(self.button_frame, text="Start", command=self.start)
+        # Start button (accent color) - make it more prominent
+        self.start_btn = tk.Button(self.button_frame, text="Start", command=self.start,
+                                  bg=COLORS['accent'], fg='white',
+                                  activebackground=COLORS['accent_hover'],
+                                  activeforeground='white',
+                                  relief='flat', bd=0,
+                                  padx=20, pady=10,
+                                  font=(self.default_font[0], self.default_font[1], 'bold'),
+                                  cursor='hand2',
+                                  highlightthickness=0)
         self.start_btn.pack(side="left")
 
         # Progress bar
-        self.progress = ttk.Progressbar(root, orient='horizontal', mode='determinate', length=300)
-        self.progress.grid(row=6, column=1, columnspan=2, sticky="we", padx=5, pady=2)
+        progress_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        progress_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        self.progress = ttk.Progressbar(progress_frame, orient='horizontal', mode='determinate',
+                                       length=300, style='TProgressbar')
+        self.progress.pack(fill='x', expand=True)
 
-        # Logs
-        tk.Label(root, text="Logs:").grid(row=7, column=0, sticky="nw")
-        self.log_widget = scrolledtext.ScrolledText(root, width=60, height=10, state='disabled')
-        self.log_widget.grid(row=7, column=1, columnspan=2, sticky="nesw")
+        # Logs section
+        logs_label_frame = tk.Frame(main_frame, bg=COLORS['bg_primary'])
+        logs_label_frame.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        tk.Label(logs_label_frame, text="Logs:", bg=COLORS['bg_primary'],
+                fg=COLORS['text_primary'], font=self.label_font, width=14, anchor='w').grid(row=0, column=0, sticky="w")
+        
+        # Log widget with styled border
+        logs_container = tk.Frame(main_frame, bg=COLORS['border'], padx=2, pady=2)
+        logs_container.grid(row=9, column=0, columnspan=3, sticky="nsew")
+        self.log_widget = scrolledtext.ScrolledText(logs_container, width=60, height=10,
+                                                    state='disabled', relief='flat', bd=0,
+                                                    bg=COLORS['bg_tertiary'], fg=COLORS['text_primary'],
+                                                    font=('Consolas', self.default_font[1] - 1),
+                                                    wrap=tk.WORD)
+        self.log_widget.pack(fill='both', expand=True)
 
         # Poll for logs
         self.root.after(100, self.poll_queue)
 
         # Allow resizing
-        root.grid_columnconfigure(1, weight=1)
-        root.grid_rowconfigure(7, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_rowconfigure(9, weight=1)
+        
+        # Store main_frame for theme updates
+        self.main_frame = main_frame
+    
+    def _apply_theme(self, theme):
+        """Apply theme colors globally."""
+        global COLORS
+        if theme == "dark":
+            COLORS.update(COLORS_DARK)
+        else:
+            COLORS.update(COLORS_LIGHT)
+        self.theme = theme
+    
+    def toggle_theme(self):
+        """Toggle between light and dark themes."""
+        self.theme = "dark" if self.theme == "light" else "light"
+        self._apply_theme(self.theme)
+        self._update_all_widgets()
+        
+        # Update theme button icon and colors (preserve button styling)
+        theme_icon = "◉" if self.theme == "dark" else "☾"  # Sun (◉) for dark mode, Moon (☾) for light mode
+        self.theme_btn.config(text=theme_icon,
+                             bg=COLORS['button_bg'], fg=COLORS['text_primary'],
+                             activebackground=COLORS['button_hover'],
+                             activeforeground=COLORS['text_primary'],
+                             highlightbackground=COLORS['button_border'])
+        
+        # Update manage keys window if open
+        if hasattr(self, '_update_manage_keys'):
+            self._update_manage_keys()
+        
+        # Save theme preference
+        cfg = load_config()
+        cfg["theme"] = self.theme
+        save_config(cfg)
+        save_config._current_theme = self.theme
+    
+    def _update_all_widgets(self):
+        """Update all widgets with current theme colors."""
+        # Update root window
+        self.root.configure(bg=COLORS['bg_primary'])
+        
+        # Update ttk styles
+        style = ttk.Style()
+        style.configure('TProgressbar',
+                       background=COLORS['accent'],
+                       troughcolor=COLORS['bg_tertiary'],
+                       borderwidth=0,
+                       lightcolor=COLORS['accent'],
+                       darkcolor=COLORS['accent'])
+        style.configure('TCombobox',
+                       fieldbackground=COLORS['input_bg'],
+                       background=COLORS['input_bg'],
+                       foreground=COLORS['text_primary'],
+                       borderwidth=2,
+                       relief='flat',
+                       padding=8)
+        style.map('TCombobox',
+                 fieldbackground=[('readonly', COLORS['input_bg'])],
+                 background=[('readonly', COLORS['input_bg'])],
+                 foreground=[('readonly', COLORS['text_primary'])],
+                 bordercolor=[('focus', COLORS['accent']), ('!focus', COLORS['border'])],
+                 lightcolor=[('focus', COLORS['accent'])],
+                 darkcolor=[('focus', COLORS['accent'])])
+        
+        # Recursively update all widgets
+        self._update_widget_tree(self.main_frame)
+    
+    def _update_widget_tree(self, widget):
+        """Recursively update widget colors."""
+        widget_type = widget.winfo_class()
+        
+        # Update frames
+        if widget_type == 'Frame' or widget_type == 'Toplevel':
+            try:
+                widget.configure(bg=COLORS['bg_primary'])
+            except:
+                pass
+        
+        # Update labels
+        elif widget_type == 'Label':
+            try:
+                current_fg = widget.cget('fg')
+                # Preserve secondary text color
+                if current_fg in [COLORS_LIGHT['text_secondary'], COLORS_DARK['text_secondary']]:
+                    widget.configure(bg=COLORS['bg_primary'], fg=COLORS['text_secondary'])
+                elif current_fg in [COLORS_LIGHT['text_tertiary'], COLORS_DARK['text_tertiary']]:
+                    widget.configure(bg=COLORS['bg_primary'], fg=COLORS['text_tertiary'])
+                else:
+                    widget.configure(bg=COLORS['bg_primary'], fg=COLORS['text_primary'])
+            except:
+                pass
+        
+        # Update entries
+        elif widget_type == 'Entry':
+            try:
+                widget.configure(bg=COLORS['input_bg'], fg=COLORS['text_primary'],
+                               insertbackground=COLORS['text_primary'],
+                               highlightcolor=COLORS['accent'],
+                               highlightbackground=COLORS['border'])
+            except:
+                pass
+        
+        # Update text widgets
+        elif widget_type == 'Text' or widget_type == 'ScrolledText':
+            try:
+                current_bg = widget.cget('bg')
+                # Check if it's the log widget (tertiary background)
+                if current_bg in [COLORS_LIGHT['bg_tertiary'], COLORS_DARK['bg_tertiary']]:
+                    widget.configure(bg=COLORS['bg_tertiary'], fg=COLORS['text_primary'],
+                                   insertbackground=COLORS['text_primary'],
+                                   selectbackground=COLORS['accent'],
+                                   selectforeground='white')
+                else:
+                    widget.configure(bg=COLORS['input_bg'], fg=COLORS['text_primary'],
+                                   insertbackground=COLORS['text_primary'],
+                                   selectbackground=COLORS['accent'],
+                                   selectforeground='white')
+            except:
+                pass
+        
+        # Update buttons (but preserve special states)
+        elif widget_type == 'Button':
+            try:
+                current_bg = widget.cget('bg')
+                current_state = widget.cget('state')
+                current_text = widget.cget('text')
+                
+                # Preserve Start button accent color
+                if current_bg in [COLORS_LIGHT['accent'], COLORS_DARK['accent']]:
+                    widget.configure(bg=COLORS['accent'], fg='white',
+                                   activebackground=COLORS['accent_hover'],
+                                   activeforeground='white')
+                # Preserve disabled button styling
+                elif current_state == 'disabled':
+                    if current_bg in [COLORS_LIGHT['bg_tertiary'], COLORS_DARK['bg_tertiary']]:
+                        widget.configure(bg=COLORS['bg_tertiary'], fg=COLORS['text_tertiary'])
+                # Update regular buttons (including theme button)
+                else:
+                    widget.configure(bg=COLORS['button_bg'], fg=COLORS['text_primary'],
+                                   activebackground=COLORS['button_hover'],
+                                   activeforeground=COLORS['text_primary'],
+                                   highlightbackground=COLORS['button_border'])
+            except:
+                pass
+        
+        # Update border containers (frames with border color)
+        try:
+            current_bg = widget.cget('bg')
+            if current_bg in [COLORS_LIGHT['border'], COLORS_DARK['border']]:
+                widget.configure(bg=COLORS['border'])
+        except:
+            pass
+        
+        # Recursively update children
+        try:
+            for child in widget.winfo_children():
+                self._update_widget_tree(child)
+        except:
+            pass
+    
+    def _create_styled_button(self, parent, text, command):
+        """Create a styled button matching AIVerse design."""
+        btn = tk.Button(parent, text=text, command=command,
+                       bg=COLORS['button_bg'], fg=COLORS['text_primary'],
+                       activebackground=COLORS['button_hover'],
+                       activeforeground=COLORS['text_primary'],
+                       relief='flat', bd=0,
+                       highlightthickness=2,
+                       highlightcolor=COLORS['accent'],
+                       highlightbackground=COLORS['button_border'],
+                       padx=14, pady=8,
+                       font=(self.default_font[0], self.default_font[1], 'normal'),
+                       cursor='hand2')
+        return btn
+    
+    def _add_hover_effect(self, widget, normal_bg, hover_bg):
+        """Add hover effect to a widget, preserving text color."""
+        def on_enter(e):
+            if widget['state'] != 'disabled':
+                # Preserve current foreground color
+                current_fg = widget.cget('fg')
+                widget.config(bg=hover_bg, fg=current_fg, highlightbackground=COLORS['border'])
+        def on_leave(e):
+            if widget['state'] != 'disabled':
+                # Preserve current foreground color
+                current_fg = widget.cget('fg')
+                widget.config(bg=normal_bg, fg=current_fg, highlightbackground=COLORS['button_border'])
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
 
     def browse_input(self):
         file = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt")])
@@ -610,11 +1000,13 @@ class App:
         self.root.after(100, self.poll_queue)
 
     def start(self):
-        self.start_btn.config(state='disabled')
+        self.start_btn.config(state='disabled', bg=COLORS['text_tertiary'], 
+                              activebackground=COLORS['text_tertiary'])
         self.log_widget.config(state='normal')
         self.log_widget.delete('1.0', tk.END)
         self.log_widget.config(state='disabled')
-        self.cancel_btn.config(state='normal')
+        self.cancel_btn.config(state='normal', bg=COLORS['button_bg'], 
+                              fg=COLORS['text_primary'])
 
         file_path = self.input_file.get().strip()
         if os.path.isfile(file_path):
@@ -668,13 +1060,15 @@ class App:
         self.text_input.delete('1.0', tk.END)
         self.update_count()
         self.output_folder.delete(0, tk.END)
-        self.start_btn.config(state='normal')
+        self.start_btn.config(state='normal', bg=COLORS['accent'],
+                             activebackground=COLORS['accent_hover'])
         self.cancel_btn.config(state='disabled')
         self.progress["value"] = 0
 
     def cancel(self):
         self.cancel_requested = True
-        self.cancel_btn.config(state='disabled')
+        self.cancel_btn.config(state='disabled', bg=COLORS['bg_tertiary'], 
+                              fg=COLORS['text_tertiary'])
         self.log("Cancellation requested...\n")
 
     def update_progress(self, value, total):
@@ -713,20 +1107,67 @@ class App:
                 os.replace(tmp, KEY_FILE)
             except Exception as e:
                 print("Could not save keys:", e)
+            win.destroy()
 
         save_keys()
 
         win = tk.Toplevel(self.root)
         win.title("Manage API Keys")
-        tk.Label(win, text="Enter one API key per line:").pack(anchor='w')
-        text_area = scrolledtext.ScrolledText(win, width=50, height=15)
-        text_area.pack()
+        win.configure(bg=COLORS['bg_primary'])
+        win.geometry("600x500")
+        
+        # Store reference for theme updates
+        self.manage_keys_window = win
+        
+        # Main container
+        main_container = tk.Frame(win, bg=COLORS['bg_primary'], padx=24, pady=16)
+        main_container.pack(fill='both', expand=True)
+        
+        # Label
+        label = tk.Label(main_container, text="Enter one API key per line:",
+                bg=COLORS['bg_primary'], fg=COLORS['text_primary'],
+                font=self.label_font)
+        label.pack(anchor='w', pady=(0, 8))
+        
+        # Text area with styled border
+        text_container = tk.Frame(main_container, bg=COLORS['border'], padx=2, pady=2)
+        text_container.pack(fill='both', expand=True, pady=(0, 16))
+        text_area = scrolledtext.ScrolledText(text_container, width=50, height=15,
+                                             relief='flat', bd=0,
+                                             bg=COLORS['input_bg'], fg=COLORS['text_primary'],
+                                             insertbackground=COLORS['text_primary'],
+                                             selectbackground=COLORS['accent'],
+                                             selectforeground='white',
+                                             font=('Consolas', self.default_font[1] - 1),
+                                             wrap=tk.WORD)
+        text_area.pack(fill='both', expand=True)
         for k in API_KEYS:
             text_area.insert(tk.END, k + "\n")
-        btn_frame = tk.Frame(win)
-        btn_frame.pack(pady=5)
-        tk.Button(btn_frame, text="Save", command=save_and_close).pack(side='left', padx=5)
-        tk.Button(btn_frame, text="Cancel", command=win.destroy).pack(side='left')
+        text_area.bind("<FocusIn>", lambda e: text_container.config(bg=COLORS['accent']))
+        text_area.bind("<FocusOut>", lambda e: text_container.config(bg=COLORS['border']))
+        
+        # Button frame
+        btn_frame = tk.Frame(main_container, bg=COLORS['bg_primary'])
+        btn_frame.pack(fill='x')
+        self._create_styled_button(btn_frame, "Cancel", win.destroy).pack(side='right', padx=(8, 0))
+        save_btn = tk.Button(btn_frame, text="Save", command=save_and_close,
+                            bg=COLORS['accent'], fg='white',
+                            activebackground=COLORS['accent_hover'],
+                            activeforeground='white',
+                            relief='flat', bd=0,
+                            padx=20, pady=10,
+                            font=(self.default_font[0], self.default_font[1], 'bold'),
+                            cursor='hand2',
+                            highlightthickness=0)
+        save_btn.pack(side='right')
+        
+        # Update manage keys window when theme changes
+        def update_manage_keys_theme():
+            if hasattr(self, 'manage_keys_window') and self.manage_keys_window.winfo_exists():
+                self._update_widget_tree(self.manage_keys_window)
+        
+        # Store update function
+        self._update_manage_keys = update_manage_keys_theme
 
     def _async_load_voices(self):
         voices = get_voices(use_cache=True, force_refresh=False)
@@ -743,14 +1184,13 @@ class App:
         self.root.after(0, lambda: self._update_voice_menu(mapping))
 
     def _update_voice_menu(self, mapping):
-        """Replace OptionMenu entries with mapping (name->voice_id)."""
+        """Replace Combobox entries with mapping (name->voice_id)."""
         self.voice_map = mapping
-        menu = self.voice_menu["menu"]
-        menu.delete(0, "end")
         # keep previous selection if possible
         current = self.voice_var.get()
-        for name in sorted(mapping.keys(), key=lambda n: (n != "Glinda", n)):  # put Glinda first
-            menu.add_command(label=name, command=lambda v=name: self.voice_var.set(v))
+        # Sort voices, putting Glinda first
+        sorted_voices = sorted(mapping.keys(), key=lambda n: (n != "Glinda", n))
+        self.voice_menu['values'] = sorted_voices
         # restore selection or set to Glinda
         if current in mapping:
             self.voice_var.set(current)
